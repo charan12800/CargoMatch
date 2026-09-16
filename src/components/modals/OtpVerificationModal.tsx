@@ -9,7 +9,7 @@ interface OtpVerificationModalProps {
   isOpen: boolean;
   onClose: () => void;
   booking: Booking | null;
-  onVerify: (bookingId: string, otp: string) => { success: boolean; message: string };
+  onVerify: (bookingId: string, otp: string) => Promise<{ success: boolean; message: string }> | { success: boolean; message: string };
 }
 
 export const OtpVerificationModal: React.FC<OtpVerificationModalProps> = ({
@@ -47,7 +47,7 @@ export const OtpVerificationModal: React.FC<OtpVerificationModalProps> = ({
     }
   };
 
-  const handleVerify = (e: React.FormEvent) => {
+  const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     const fullOtp = otpValues.join('');
 
@@ -57,18 +57,22 @@ export const OtpVerificationModal: React.FC<OtpVerificationModalProps> = ({
     }
 
     setIsSubmitting(true);
-    const result = onVerify(booking.id, fullOtp);
-    setIsSubmitting(false);
-
-    if (result.success) {
-      setSuccessMsg(result.message);
-      setTimeout(() => {
-        setSuccessMsg(null);
-        setOtpValues(['', '', '', '']);
-        onClose();
-      }, 1500);
-    } else {
-      setErrorMsg(result.message);
+    try {
+      const result = await onVerify(booking.id, fullOtp);
+      if (result.success) {
+        setSuccessMsg(result.message);
+        setTimeout(() => {
+          setSuccessMsg(null);
+          setOtpValues(['', '', '', '']);
+          onClose();
+        }, 1500);
+      } else {
+        setErrorMsg(result.message);
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Verification failed. Please try again.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 

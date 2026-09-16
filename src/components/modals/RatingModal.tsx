@@ -7,7 +7,7 @@ interface RatingModalProps {
   isOpen: boolean;
   onClose: () => void;
   booking: Booking | null;
-  onSubmit: (bookingId: string, rating: number, review?: string) => void;
+  onSubmit: (bookingId: string, rating: number, review?: string) => Promise<void> | void;
 }
 
 export const RatingModal: React.FC<RatingModalProps> = ({
@@ -41,7 +41,7 @@ export const RatingModal: React.FC<RatingModalProps> = ({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const finalReview = [
       ...selectedTags,
@@ -50,7 +50,7 @@ export const RatingModal: React.FC<RatingModalProps> = ({
       .filter(Boolean)
       .join(' • ');
 
-    onSubmit(booking.id, rating, finalReview);
+    await onSubmit(booking.id, rating, finalReview);
     setSubmitted(true);
     setTimeout(() => {
       setSubmitted(false);

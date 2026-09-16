@@ -72,7 +72,7 @@ export const PostTripPage: React.FC = () => {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     // Format readable strings for display
@@ -93,7 +93,7 @@ export const PostTripPage: React.FC = () => {
       minute: '2-digit',
     });
 
-    postTrip({
+    await postTrip({
       source: source.trim(),
       destination: destination.trim(),
       departure_time: formattedDep,

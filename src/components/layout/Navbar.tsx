@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '../common/Button';
+import { BackendStatusBadge } from '../common/BackendStatusBadge';
 import { 
   Truck, 
   Package, 
@@ -91,6 +92,8 @@ export const Navbar: React.FC = () => {
 
           {/* Desktop Action CTAs */}
           <div className="hidden sm:flex items-center gap-3">
+            <BackendStatusBadge />
+
             <Button
               variant="outline"
               size="sm"

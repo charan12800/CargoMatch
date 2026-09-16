@@ -137,10 +137,10 @@ export const SendCargoPage: React.FC = () => {
   const fullPickupAddress = `${pickupDetails.flat_building}, ${pickupDetails.street_area}, ${pickupDetails.city}, ${pickupDetails.state} - ${pickupDetails.pincode}`;
   const fullDeliveryAddress = `${deliveryDetails.flat_building}, ${deliveryDetails.street_area}, ${deliveryDetails.city}, ${deliveryDetails.state} - ${deliveryDetails.pincode}`;
 
-  const handleConfirmBooking = () => {
+  const handleConfirmBooking = async () => {
     if (!selectedMatch) return;
 
-    const createdReq = createDeliveryRequest({
+    const createdReq = await createDeliveryRequest({
       source: source.trim(),
       destination: destination.trim(),
       pickup_address: fullPickupAddress,
@@ -160,7 +160,7 @@ export const SendCargoPage: React.FC = () => {
       delivery_date: deliveryDate,
     });
 
-    const booking = createBooking(selectedMatch.trip.id, createdReq.id, {
+    const booking = await createBooking(selectedMatch.trip.id, createdReq.id, {
       name: cargoName,
       weight,
       price: selectedMatch.estimated_price,

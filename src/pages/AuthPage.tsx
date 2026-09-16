@@ -3,19 +3,26 @@ import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { Button } from '../components/common/Button';
 import { Card } from '../components/common/Card';
+import { BackendStatusBadge } from '../components/common/BackendStatusBadge';
 import { MOCK_CUSTOMERS, MOCK_DRIVERS } from '../lib/mockData';
+import { signInUser, signUpUser } from '../lib/api/auth';
+import { isSupabaseConfigured } from '../lib/supabase';
 import { 
   Truck, 
   Package, 
   ArrowRight, 
-  ArrowLeft
+  ArrowLeft,
+  AlertCircle,
+  Loader2,
+  CheckCircle2,
+  Zap
 } from 'lucide-react';
-import { UserRole } from '../types';
+import { UserRole, Profile } from '../types';
 
 export const AuthPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { loginAs } = useApp();
+  const { loginAs, isLiveBackend } = useApp();
   
   const initialRole = (searchParams.get('role') as UserRole) || 'customer';
   const [role, setRole] = useState<UserRole>(initialRole);
@@ -24,6 +31,9 @@ export const AuthPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Transfer any route params from search
   const sourceParam = searchParams.get('source') || '';
@@ -37,26 +47,86 @@ export const AuthPage: React.FC = () => {
     }
   }, [searchParams]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (role === 'customer') {
-      loginAs({
-        ...MOCK_CUSTOMERS[0],
-        full_name: fullName || MOCK_CUSTOMERS[0].full_name,
-        email: email || MOCK_CUSTOMERS[0].email,
-      });
+  const handleQuickDemoLogin = (profile: Profile) => {
+    loginAs(profile);
+    if (profile.role === 'customer') {
       if (sourceParam && destParam) {
         navigate(`/customer/send-cargo?source=${encodeURIComponent(sourceParam)}&dest=${encodeURIComponent(destParam)}&weight=${weightParam}`);
       } else {
         navigate('/customer');
       }
     } else {
-      loginAs({
-        ...MOCK_DRIVERS[0],
-        full_name: fullName || MOCK_DRIVERS[0].full_name,
-        email: email || MOCK_DRIVERS[0].email,
-      });
       navigate('/driver');
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setIsLoading(true);
+
+    try {
+      if (isLogin) {
+        const { profile, error } = await signInUser({
+          email: email.trim(),
+          password: password,
+        });
+
+        if (error) {
+          setErrorMessage(error);
+          setIsLoading(false);
+          return;
+        }
+
+        if (profile) {
+          loginAs(profile);
+          if (profile.role === 'driver' || role === 'driver') {
+            navigate('/driver');
+          } else {
+            if (sourceParam && destParam) {
+              navigate(`/customer/send-cargo?source=${encodeURIComponent(sourceParam)}&dest=${encodeURIComponent(destParam)}&weight=${weightParam}`);
+            } else {
+              navigate('/customer');
+            }
+          }
+        }
+      } else {
+        // Sign up
+        const { profile, error } = await signUpUser({
+          email: email.trim(),
+          password: password,
+          fullName: fullName.trim(),
+          role: role,
+          phone: phone.trim(),
+        });
+
+        if (error) {
+          setErrorMessage(error);
+          setIsLoading(false);
+          return;
+        }
+
+        if (profile) {
+          loginAs(profile);
+          setSuccessMessage('Account created successfully! Redirecting...');
+          setTimeout(() => {
+            if (role === 'driver') {
+              navigate('/driver');
+            } else {
+              if (sourceParam && destParam) {
+                navigate(`/customer/send-cargo?source=${encodeURIComponent(sourceParam)}&dest=${encodeURIComponent(destParam)}&weight=${weightParam}`);
+              } else {
+                navigate('/customer');
+              }
+            }
+          }, 800);
+        }
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'An unexpected authentication error occurred.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -73,12 +143,15 @@ export const AuthPage: React.FC = () => {
           </span>
         </Link>
 
-        <Link
-          to="/"
-          className="text-xs font-semibold text-slate-600 hover:text-slate-900 flex items-center gap-1.5"
-        >
-          <ArrowLeft className="w-4 h-4" /> Back to Home
-        </Link>
+        <div className="flex items-center gap-3">
+          <BackendStatusBadge />
+          <Link
+            to="/"
+            className="text-xs font-semibold text-slate-600 hover:text-slate-900 flex items-center gap-1.5"
+          >
+            <ArrowLeft className="w-4 h-4" /> Back to Home
+          </Link>
+        </div>
       </div>
 
       {/* Main Container */}
@@ -91,10 +164,28 @@ export const AuthPage: React.FC = () => {
             </h1>
             <p className="text-xs text-slate-500">
               {isLogin
-                ? 'Select your account type to proceed'
+                ? 'Select your account type and credentials to proceed'
                 : 'Join the shared-capacity logistics platform'}
             </p>
           </div>
+
+          {/* Feedback Alerts */}
+          {errorMessage && (
+            <div className="mb-4 p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="font-semibold">Authentication Notice</p>
+                <p className="opacity-90">{errorMessage}</p>
+              </div>
+            </div>
+          )}
+
+          {successMessage && (
+            <div className="mb-4 p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{successMessage}</span>
+            </div>
+          )}
 
           {/* Role Selection Switcher */}
           <div className="space-y-2 mb-6">
@@ -153,7 +244,6 @@ export const AuthPage: React.FC = () => {
                   </label>
                   <input
                     type="tel"
-                    required
                     placeholder="+91 98490 12345"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
@@ -204,10 +294,15 @@ export const AuthPage: React.FC = () => {
               type="submit"
               variant={role === 'driver' ? 'emerald' : 'primary'}
               size="md"
-              className="w-full font-bold shadow-md"
-              rightIcon={<ArrowRight className="w-4 h-4" />}
+              disabled={isLoading}
+              className="w-full font-bold shadow-md cursor-pointer"
+              rightIcon={isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
             >
-              {isLogin ? `Sign In as ${role === 'customer' ? 'Customer' : 'Driver'}` : `Create ${role === 'customer' ? 'Customer' : 'Driver'} Account`}
+              {isLoading
+                ? 'Authenticating...'
+                : isLogin
+                ? `Sign In as ${role === 'customer' ? 'Customer' : 'Driver'}`
+                : `Create ${role === 'customer' ? 'Customer' : 'Driver'} Account`}
             </Button>
           </form>
 
@@ -234,6 +329,31 @@ export const AuthPage: React.FC = () => {
                 </button>
               </p>
             )}
+          </div>
+
+          {/* Quick Demo Login Preset Buttons */}
+          <div className="mt-6 pt-4 border-t border-slate-100">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 text-center mb-2.5 flex items-center justify-center gap-1">
+              <Zap className="w-3.5 h-3.5 text-amber-500" /> Instant Demo Shortcuts:
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => handleQuickDemoLogin(MOCK_CUSTOMERS[0])}
+                className="p-2 text-left bg-blue-50 hover:bg-blue-100/80 border border-blue-200/80 rounded-xl transition-colors cursor-pointer"
+              >
+                <div className="text-[11px] font-bold text-blue-900">👤 Customer Demo</div>
+                <div className="text-[10px] text-blue-700 truncate">{MOCK_CUSTOMERS[0].full_name}</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleQuickDemoLogin(MOCK_DRIVERS[0])}
+                className="p-2 text-left bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-200/80 rounded-xl transition-colors cursor-pointer"
+              >
+                <div className="text-[11px] font-bold text-emerald-900">🚛 Driver Demo</div>
+                <div className="text-[10px] text-emerald-700 truncate">{MOCK_DRIVERS[0].full_name}</div>
+              </button>
+            </div>
           </div>
         </Card>
       </div>

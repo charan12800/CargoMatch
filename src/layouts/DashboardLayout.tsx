@@ -16,6 +16,7 @@ import {
   ArrowLeftRight,
   ShieldCheck
 } from 'lucide-react';
+import { BackendStatusBadge } from '../components/common/BackendStatusBadge';
 import { Button } from '../components/common/Button';
 
 export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -83,8 +84,10 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
             </div>
           </div>
 
-          {/* Right: Role Switcher, Notifications & Profile */}
+          {/* Right: Backend Status, Role Switcher, Notifications & Profile */}
           <div className="flex items-center gap-3">
+            <BackendStatusBadge />
+
             <Button
               variant="outline"
               size="sm"

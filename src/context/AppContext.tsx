@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { 
   Profile, 
   Trip, 
@@ -18,6 +18,10 @@ import {
   MOCK_NOTIFICATIONS 
 } from '../lib/mockData';
 import { generateOTP } from '../lib/utils';
+import { isSupabaseConfigured, testSupabaseConnection } from '../lib/supabase';
+import * as api from '../lib/api';
+
+export type BackendStatus = 'connected' | 'demo' | 'connecting' | 'error';
 
 interface AppContextType {
   currentUser: Profile;
@@ -27,18 +31,22 @@ interface AppContextType {
   bookings: Booking[];
   notifications: AppNotification[];
   ratings: Rating[];
+  backendStatus: BackendStatus;
+  isLiveBackend: boolean;
+  backendMessage: string;
+  refreshData: () => Promise<void>;
   
   // Actions
   switchRole: (role: UserRole) => void;
   loginAs: (user: Profile) => void;
-  createDeliveryRequest: (request: Omit<DeliveryRequest, 'id' | 'created_at' | 'status' | 'customer_id'>) => DeliveryRequest;
-  postTrip: (trip: Omit<Trip, 'id' | 'created_at' | 'status' | 'driver_id'>) => Trip;
-  createBooking: (tripId: string, requestId?: string, customCargo?: { name: string; weight: number; price: number; matchScore: number; tripDetails?: Trip }) => Booking;
-  updateBookingStatus: (bookingId: string, newStatus: BookingStatus) => void;
-  verifyDeliveryOTP: (bookingId: string, enteredOtp: string) => { success: boolean; message: string };
-  submitRating: (bookingId: string, rating: number, review?: string) => void;
-  markNotificationRead: (id: string) => void;
-  markAllNotificationsRead: () => void;
+  createDeliveryRequest: (request: Omit<DeliveryRequest, 'id' | 'created_at' | 'status' | 'customer_id'>) => Promise<DeliveryRequest>;
+  postTrip: (trip: Omit<Trip, 'id' | 'created_at' | 'status' | 'driver_id'>) => Promise<Trip>;
+  createBooking: (tripId: string, requestId?: string, customCargo?: { name: string; weight: number; price: number; matchScore: number; tripDetails?: Trip }) => Promise<Booking>;
+  updateBookingStatus: (bookingId: string, newStatus: BookingStatus) => Promise<void>;
+  verifyDeliveryOTP: (bookingId: string, enteredOtp: string) => Promise<{ success: boolean; message: string }>;
+  submitRating: (bookingId: string, rating: number, review?: string) => Promise<void>;
+  markNotificationRead: (id: string) => Promise<void>;
+  markAllNotificationsRead: () => Promise<void>;
   unreadNotificationsCount: number;
 }
 
@@ -54,6 +62,12 @@ const STORAGE_KEYS = {
 };
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const isConfigured = isSupabaseConfigured();
+  const [backendStatus, setBackendStatus] = useState<BackendStatus>(isConfigured ? 'connecting' : 'demo');
+  const [backendMessage, setBackendMessage] = useState<string>(
+    isConfigured ? 'Connecting to Supabase PostgreSQL...' : 'Running in Local Demo Mode (Local Storage)'
+  );
+
   const [currentUser, setCurrentUser] = useState<Profile>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.USER);
     if (saved) {
@@ -96,6 +110,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [ratings, setRatings] = useState<Rating[]>([]);
 
+  // Local storage persistence fallback
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(currentUser));
   }, [currentUser]);
@@ -116,6 +131,94 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(notifications));
   }, [notifications]);
 
+  // Fetch initial data from Supabase if configured
+  const loadSupabaseData = useCallback(async () => {
+    if (!isSupabaseConfigured()) {
+      setBackendStatus('demo');
+      setBackendMessage('Running in Local Demo Mode (Local Storage)');
+      return;
+    }
+
+    setBackendStatus('connecting');
+    const testResult = await testSupabaseConnection();
+
+    if (!testResult.success) {
+      setBackendStatus('error');
+      setBackendMessage(testResult.message);
+      return;
+    }
+
+    setBackendStatus('connected');
+    setBackendMessage(testResult.message);
+
+    try {
+      // Parallel fetch from PostgreSQL
+      const [tripsRes, requestsRes, bookingsRes, notifsRes] = await Promise.all([
+        api.fetchTrips(),
+        api.fetchDeliveryRequests(),
+        api.fetchBookings(),
+        currentUser ? api.fetchNotifications(currentUser.id) : Promise.resolve({ data: [], error: null }),
+      ]);
+
+      if (tripsRes.data && tripsRes.data.length > 0) {
+        setTrips(tripsRes.data);
+      }
+      if (requestsRes.data && requestsRes.data.length > 0) {
+        setRequests(requestsRes.data);
+      }
+      if (bookingsRes.data && bookingsRes.data.length > 0) {
+        setBookings(bookingsRes.data);
+      }
+      if (notifsRes.data && notifsRes.data.length > 0) {
+        setNotifications(notifsRes.data);
+      }
+    } catch (err: any) {
+      console.warn('Error loading Supabase data:', err);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    loadSupabaseData();
+  }, [loadSupabaseData]);
+
+  // Realtime Subscriptions Setup
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+
+    const unsubTrips = api.subscribeToTrips(() => {
+      api.fetchTrips().then((res) => {
+        if (res.data) setTrips(res.data);
+      });
+    });
+
+    const unsubRequests = api.subscribeToRequests(() => {
+      api.fetchDeliveryRequests().then((res) => {
+        if (res.data) setRequests(res.data);
+      });
+    });
+
+    const unsubBookings = api.subscribeToBookings(() => {
+      api.fetchBookings().then((res) => {
+        if (res.data) setBookings(res.data);
+      });
+    });
+
+    const unsubNotifs = currentUser
+      ? api.subscribeToNotifications(currentUser.id, () => {
+          api.fetchNotifications(currentUser.id).then((res) => {
+            if (res.data) setNotifications(res.data);
+          });
+        })
+      : () => {};
+
+    return () => {
+      unsubTrips();
+      unsubRequests();
+      unsubBookings();
+      unsubNotifs();
+    };
+  }, [currentUser]);
+
   const switchRole = (role: UserRole) => {
     if (role === 'customer') {
       setCurrentUser(MOCK_CUSTOMERS[0]);
@@ -128,19 +231,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentUser(user);
   };
 
-  const addNotification = (notif: Omit<AppNotification, 'id' | 'created_at' | 'read'>) => {
-    const newNotif: AppNotification = {
+  const addNotification = async (notif: Omit<AppNotification, 'id' | 'created_at' | 'read'>) => {
+    const localNotif: AppNotification = {
       ...notif,
       id: `notif-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       read: false,
       created_at: new Date().toISOString(),
     };
-    setNotifications((prev) => [newNotif, ...prev]);
+    setNotifications((prev) => [localNotif, ...prev]);
+
+    if (isSupabaseConfigured()) {
+      await api.createNotification(notif);
+    }
   };
 
-  const createDeliveryRequest = (
+  const createDeliveryRequest = async (
     data: Omit<DeliveryRequest, 'id' | 'created_at' | 'status' | 'customer_id'>
-  ): DeliveryRequest => {
+  ): Promise<DeliveryRequest> => {
     const newReq: DeliveryRequest = {
       ...data,
       id: `req-${Date.now()}`,
@@ -150,9 +257,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       created_at: new Date().toISOString(),
     };
 
+    // Optimistic state update
     setRequests((prev) => [newReq, ...prev]);
 
-    addNotification({
+    // Backend sync
+    if (isSupabaseConfigured()) {
+      const res = await api.createDeliveryRequest({
+        ...data,
+        customer_id: currentUser.id,
+      });
+      if (res.data) {
+        setRequests((prev) => prev.map((r) => (r.id === newReq.id ? res.data! : r)));
+      }
+    }
+
+    await addNotification({
       user_id: currentUser.id,
       title: 'Delivery Request Created',
       message: `Your cargo request for ${newReq.cargo_name} (${newReq.source} → ${newReq.destination}) is live and matching vehicles.`,
@@ -162,9 +281,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return newReq;
   };
 
-  const postTrip = (
+  const postTrip = async (
     data: Omit<Trip, 'id' | 'created_at' | 'status' | 'driver_id'>
-  ): Trip => {
+  ): Promise<Trip> => {
     const newTrip: Trip = {
       ...data,
       id: `trip-${Date.now()}`,
@@ -174,9 +293,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       created_at: new Date().toISOString(),
     };
 
+    // Optimistic state update
     setTrips((prev) => [newTrip, ...prev]);
 
-    addNotification({
+    // Backend sync
+    if (isSupabaseConfigured()) {
+      const res = await api.createTrip({
+        ...data,
+        driver_id: currentUser.id,
+      });
+      if (res.data) {
+        setTrips((prev) => prev.map((t) => (t.id === newTrip.id ? res.data! : t)));
+      }
+    }
+
+    await addNotification({
       user_id: currentUser.id,
       title: 'Trip Posted Successfully',
       message: `Your trip from ${newTrip.source} → ${newTrip.destination} with ${newTrip.available_capacity} kg capacity is now discoverable.`,
@@ -186,11 +317,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return newTrip;
   };
 
-  const createBooking = (
+  const createBooking = async (
     tripId: string,
     requestId?: string,
     customCargo?: { name: string; weight: number; price: number; matchScore: number; tripDetails?: Trip }
-  ): Booking => {
+  ): Promise<Booking> => {
     const trip = customCargo?.tripDetails || trips.find((t) => t.id === tripId) || MOCK_TRIPS[0];
     const req = requestId ? requests.find((r) => r.id === requestId) : undefined;
     const otp = generateOTP();
@@ -247,12 +378,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setRequests((prev) =>
         prev.map((r) => (r.id === requestId ? { ...r, status: 'BOOKED' } : r))
       );
+      if (isSupabaseConfigured()) {
+        api.updateDeliveryRequestStatus(requestId, 'BOOKED');
+      }
     }
 
     setBookings((prev) => [newBooking, ...prev]);
 
+    // Backend sync
+    if (isSupabaseConfigured()) {
+      const res = await api.createBooking({
+        customer_id: currentUser.id,
+        driver_id: trip.driver_id || MOCK_DRIVERS[0].id,
+        trip_id: trip.id,
+        request_id: requestId,
+        price: bookingPrice,
+        match_score: score,
+        otp: otp,
+      });
+      if (res.data) {
+        setBookings((prev) => prev.map((b) => (b.id === newBooking.id ? res.data! : b)));
+      }
+    }
+
     // Customer Notification
-    addNotification({
+    await addNotification({
       user_id: currentUser.id,
       title: 'Booking Confirmed!',
       message: `Your booking for ${weightBooked} kg space with driver ${trip.driver?.full_name || 'Rajesh'} has been placed. Secure delivery OTP: ${otp}.`,
@@ -260,7 +410,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     // Driver Notification
-    addNotification({
+    await addNotification({
       user_id: trip.driver_id || MOCK_DRIVERS[0].id,
       title: 'New Cargo Request Received',
       message: `A customer requested to book ${weightBooked} kg space on your ${trip.source} → ${trip.destination} route for ₹${bookingPrice}.`,
@@ -270,7 +420,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return newBooking;
   };
 
-  const updateBookingStatus = (bookingId: string, newStatus: BookingStatus) => {
+  const updateBookingStatus = async (bookingId: string, newStatus: BookingStatus) => {
     setBookings((prev) =>
       prev.map((b) => {
         if (b.id === bookingId) {
@@ -284,9 +434,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
     );
 
+    if (isSupabaseConfigured()) {
+      await api.updateBookingStatus(bookingId, newStatus);
+    }
+
     const targetBooking = bookings.find((b) => b.id === bookingId);
     if (targetBooking) {
-      addNotification({
+      await addNotification({
         user_id: targetBooking.customer_id,
         title: `Delivery Status: ${newStatus.replace(/_/g, ' ')}`,
         message: `Your delivery #${targetBooking.id} is now ${newStatus.toLowerCase().replace(/_/g, ' ')}.`,
@@ -295,10 +449,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const verifyDeliveryOTP = (
+  const verifyDeliveryOTP = async (
     bookingId: string,
     enteredOtp: string
-  ): { success: boolean; message: string } => {
+  ): Promise<{ success: boolean; message: string }> => {
     const booking = bookings.find((b) => b.id === bookingId);
     if (!booking) {
       return { success: false, message: 'Booking not found.' };
@@ -318,14 +472,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         )
       );
 
-      addNotification({
+      if (isSupabaseConfigured()) {
+        await api.verifyDeliveryOTP(bookingId, enteredOtp);
+      }
+
+      await addNotification({
         user_id: booking.customer_id,
         title: 'Delivery Completed Successfully! 🎉',
         message: `Your cargo #${booking.id} was handed over and verified via OTP. Please rate your driver.`,
         type: 'status_update',
       });
 
-      addNotification({
+      await addNotification({
         user_id: booking.driver_id,
         title: 'OTP Verified — Payout Credited! 💰',
         message: `Delivery #${booking.id} verified. ₹${booking.price} has been credited to your earnings.`,
@@ -338,7 +496,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const submitRating = (bookingId: string, ratingValue: number, review?: string) => {
+  const submitRating = async (bookingId: string, ratingValue: number, review?: string) => {
     const booking = bookings.find((b) => b.id === bookingId);
     if (!booking) return;
 
@@ -354,6 +512,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setRatings((prev) => [newRating, ...prev]);
 
+    if (isSupabaseConfigured()) {
+      await api.submitRating({
+        booking_id: bookingId,
+        customer_id: currentUser.id,
+        driver_id: booking.driver_id,
+        rating: ratingValue,
+        review: review,
+      });
+    }
+
     const driverId = booking.driver_id;
     const allDriverRatings = [...ratings, newRating].filter((r) => r.driver_id === driverId);
     const avg =
@@ -366,7 +534,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     });
 
-    addNotification({
+    await addNotification({
       user_id: booking.driver_id,
       title: 'New Customer Rating Received',
       message: `You received a ${ratingValue}★ rating from ${currentUser.full_name}.`,
@@ -374,14 +542,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  const markNotificationRead = (id: string) => {
+  const markNotificationRead = async (id: string) => {
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, read: true } : n))
     );
+    if (isSupabaseConfigured()) {
+      await api.markNotificationAsRead(id);
+    }
   };
 
-  const markAllNotificationsRead = () => {
+  const markAllNotificationsRead = async () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    if (isSupabaseConfigured() && currentUser) {
+      await api.markAllNotificationsAsRead(currentUser.id);
+    }
   };
 
   const unreadNotificationsCount = notifications.filter(
@@ -398,6 +572,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         bookings,
         notifications,
         ratings,
+        backendStatus,
+        isLiveBackend: backendStatus === 'connected',
+        backendMessage,
+        refreshData: loadSupabaseData,
         switchRole,
         loginAs,
         createDeliveryRequest,
