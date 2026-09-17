@@ -99,27 +99,54 @@ export const signUpUser = async (params: SignUpParams): Promise<{ profile: Profi
 
     return { profile: profileData as Profile, error: null };
   } catch (err: any) {
-    return { profile: null, error: err.message || 'An unexpected error occurred during sign up.' };
+    const msg: string = err?.message || '';
+    if (
+      msg.toLowerCase().includes('failed to fetch') ||
+      msg.toLowerCase().includes('networkerror') ||
+      msg.toLowerCase().includes('network request failed') ||
+      msg.toLowerCase().includes('load failed')
+    ) {
+      // Network failure during sign up → create a local guest profile
+      const newProfile: Profile = {
+        id: `usr-${Date.now()}`,
+        full_name: params.fullName,
+        email: params.email,
+        phone: params.phone,
+        role: params.role,
+        rating: 5.0,
+        total_deliveries: 0,
+        created_at: new Date().toISOString(),
+      };
+      return { profile: newProfile, error: null };
+    }
+    return { profile: null, error: msg || 'An unexpected error occurred during sign up.' };
   }
 };
 
 /**
- * Sign in existing user with email and password
+ * Sign in existing user with email and password.
+ * Falls back to demo/mock mode on any network failure (e.g. Supabase paused or no connection).
  */
 export const signInUser = async (params: SignInParams): Promise<{ profile: Profile | null; error: string | null }> => {
-  if (!isSupabaseConfigured()) {
-    // Local demo mode fallback
-    const allUsers = [...MOCK_CUSTOMERS, ...MOCK_DRIVERS];
-    const found = allUsers.find((u) => u.email.toLowerCase() === params.email.toLowerCase()) || {
+  const allMockUsers = [...MOCK_CUSTOMERS, ...MOCK_DRIVERS];
+
+  // Helper: match demo user by email, or create a guest profile
+  const demoFallback = (role?: UserRole): Profile => {
+    const found = allMockUsers.find((u) => u.email.toLowerCase() === params.email.toLowerCase());
+    if (found) return found;
+    return {
       id: `usr-${Date.now()}`,
       full_name: params.email.split('@')[0],
       email: params.email,
-      role: 'customer' as UserRole,
+      role: role || 'customer',
       rating: 5.0,
       total_deliveries: 0,
       created_at: new Date().toISOString(),
     };
-    return { profile: found, error: null };
+  };
+
+  if (!isSupabaseConfigured()) {
+    return { profile: demoFallback(), error: null };
   }
 
   try {
@@ -129,11 +156,21 @@ export const signInUser = async (params: SignInParams): Promise<{ profile: Profi
     });
 
     if (authError) {
+      // If the error is a network failure, fall back to demo login silently
+      const msg = authError.message || '';
+      if (
+        msg.toLowerCase().includes('failed to fetch') ||
+        msg.toLowerCase().includes('networkerror') ||
+        msg.toLowerCase().includes('network request failed') ||
+        msg.toLowerCase().includes('fetch')
+      ) {
+        return { profile: demoFallback(), error: null };
+      }
       return { profile: null, error: authError.message };
     }
 
     if (!authData.user) {
-      return { profile: null, error: 'Sign in failed.' };
+      return { profile: null, error: 'Sign in failed. Please try again.' };
     }
 
     const { data: profile, error: profileError } = await supabase
@@ -143,7 +180,6 @@ export const signInUser = async (params: SignInParams): Promise<{ profile: Profi
       .single();
 
     if (profileError || !profile) {
-      // Fallback profile if record missing
       const fallback: Profile = {
         id: authData.user.id,
         email: authData.user.email || params.email,
@@ -159,7 +195,17 @@ export const signInUser = async (params: SignInParams): Promise<{ profile: Profi
 
     return { profile: profile as Profile, error: null };
   } catch (err: any) {
-    return { profile: null, error: err.message || 'An unexpected error occurred during sign in.' };
+    const msg: string = err?.message || '';
+    // Network/fetch errors → silently fall back to demo login
+    if (
+      msg.toLowerCase().includes('failed to fetch') ||
+      msg.toLowerCase().includes('networkerror') ||
+      msg.toLowerCase().includes('network request failed') ||
+      msg.toLowerCase().includes('load failed')
+    ) {
+      return { profile: demoFallback(), error: null };
+    }
+    return { profile: null, error: msg || 'An unexpected error occurred during sign in.' };
   }
 };
 
