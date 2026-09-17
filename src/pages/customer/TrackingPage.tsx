@@ -365,6 +365,41 @@ export const TrackingPage: React.FC = () => {
             </div>
           </Card>
 
+          {/* Payment & Invoice Summary Card */}
+          <Card className="p-5 border-slate-200 shadow-sm space-y-3 bg-gradient-to-br from-white to-slate-50">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Payment & Invoice
+              </h3>
+              <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                (activeBooking.payment_status || 'PAID') === 'PAID'
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                  : 'bg-amber-50 text-amber-800 border-amber-200'
+              }`}>
+                {(activeBooking.payment_status || 'PAID') === 'PAID' ? '✓ Paid' : 'Pay at Handover'}
+              </span>
+            </div>
+
+            <div className="space-y-2 text-xs">
+              <div className="flex justify-between pb-1.5 border-b border-slate-100">
+                <span className="text-slate-500">Method:</span>
+                <span className="font-bold text-slate-900">{activeBooking.payment_method || 'UPI Instant'}</span>
+              </div>
+              <div className="flex justify-between pb-1.5 border-b border-slate-100">
+                <span className="text-slate-500">Txn ID:</span>
+                <span className="font-mono font-bold text-blue-600">{activeBooking.transaction_id || `TXN-UPI-${activeBooking.id.slice(-6)}`}</span>
+              </div>
+              <div className="flex justify-between pb-1.5 border-b border-slate-100">
+                <span className="text-slate-500">Total Charged:</span>
+                <span className="font-black text-slate-900 text-sm">{formatINR(activeBooking.price)}</span>
+              </div>
+              <div className="flex justify-between text-slate-500">
+                <span>GST Invoice:</span>
+                <span className="text-emerald-700 font-semibold">Generated (5% GTA)</span>
+              </div>
+            </div>
+          </Card>
+
         </div>
 
       </div>

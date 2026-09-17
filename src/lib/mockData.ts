@@ -156,7 +156,7 @@ export const MOCK_TRIPS: Trip[] = [
     estimated_arrival: '2026-08-23T17:00',
     total_capacity: 750,
     available_capacity: 450,
-    price: 1200,
+    price: 520, // Return trip discount applied for 570km route!
     is_return_trip: true,
     status: 'ACTIVE',
     notes: 'Returning from delivery in Hyderabad. 450 kg clean closed container space available.',
@@ -174,7 +174,7 @@ export const MOCK_TRIPS: Trip[] = [
     estimated_arrival: '2026-08-24T02:30',
     total_capacity: 1250,
     available_capacity: 800,
-    price: 950,
+    price: 680, // Standard one-way trip (275 km)
     is_return_trip: false,
     status: 'SCHEDULED',
     notes: 'Open body Bolero Maxi Truck. Heavy machinery, construction & hardware items accepted.',
@@ -192,7 +192,7 @@ export const MOCK_TRIPS: Trip[] = [
     estimated_arrival: '2026-08-24T19:00',
     total_capacity: 1000,
     available_capacity: 550,
-    price: 1800,
+    price: 620, // Return trip discount (630 km)
     is_return_trip: true,
     status: 'SCHEDULED',
     notes: 'Empty return trip. Open body pickup with weather cover tarp.',
@@ -210,7 +210,7 @@ export const MOCK_TRIPS: Trip[] = [
     estimated_arrival: '2026-08-25T21:30',
     total_capacity: 600,
     available_capacity: 350,
-    price: 2400,
+    price: 1150, // Standard one-way express route (710 km)
     is_return_trip: false,
     status: 'SCHEDULED',
     notes: 'Express mini van route. Weather-sealed closed container, padded interior.',
@@ -268,11 +268,15 @@ export const MOCK_BOOKINGS: Booking[] = [
     trip: MOCK_TRIPS[0],
     request_id: 'req-101',
     request: MOCK_REQUESTS[0],
-    price: 1200,
+    price: 520,
     match_score: 98,
     status: 'IN_TRANSIT',
     otp: '4829',
     otp_verified: false,
+    payment_status: 'PAID',
+    payment_method: 'UPI',
+    transaction_id: 'TXN-UPI-884219',
+    paid_at: '2026-08-22T09:16:00Z',
     booked_at: '2026-08-22T09:15:00Z',
   },
 ];

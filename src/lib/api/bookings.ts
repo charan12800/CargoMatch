@@ -50,6 +50,10 @@ export const createBooking = async (
     price: number;
     match_score: number;
     otp?: string;
+    payment_status?: Booking['payment_status'];
+    payment_method?: Booking['payment_method'];
+    transaction_id?: string;
+    paid_at?: string;
   }
 ): Promise<{ data: Booking | null; error: string | null }> => {
   const otpCode = bookingData.otp || generateOTP();
@@ -66,6 +70,10 @@ export const createBooking = async (
       status: 'PENDING',
       otp: otpCode,
       otp_verified: false,
+      payment_status: bookingData.payment_status || 'PAID',
+      payment_method: bookingData.payment_method || 'UPI',
+      transaction_id: bookingData.transaction_id || `TXN-UPI-${Math.floor(100000 + Math.random() * 900000)}`,
+      paid_at: bookingData.paid_at || new Date().toISOString(),
       booked_at: new Date().toISOString(),
     };
     return { data: fallbackBooking, error: null };
@@ -82,6 +90,10 @@ export const createBooking = async (
       status: 'PENDING',
       otp: otpCode,
       otp_verified: false,
+      payment_status: bookingData.payment_status || 'PAID',
+      payment_method: bookingData.payment_method || 'UPI',
+      transaction_id: bookingData.transaction_id || `TXN-UPI-${Math.floor(100000 + Math.random() * 900000)}`,
+      paid_at: bookingData.paid_at || new Date().toISOString(),
     };
 
     const { data, error } = await supabase

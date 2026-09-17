@@ -6,9 +6,11 @@ import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { CapacityMeter } from '../../components/common/CapacityMeter';
 import { BookingConfirmationModal } from '../../components/modals/BookingConfirmationModal';
+import { PaymentGatewayModal } from '../../components/modals/PaymentGatewayModal';
 import { rankMatches } from '../../lib/matching';
+import { getRouteDistance } from '../../lib/pricing';
 import { ALL_CARGO_CATEGORIES } from '../../lib/mockData';
-import { MatchScoreResult, CargoCategory, StructuredAddress } from '../../types';
+import { MatchScoreResult, CargoCategory, StructuredAddress, PaymentMethod, PaymentStatus } from '../../types';
 import { formatINR } from '../../lib/utils';
 import { 
   MapPin, 
@@ -26,7 +28,8 @@ import {
   TrendingDown,
   ShieldCheck,
   Building,
-  Home
+  Home,
+  CreditCard
 } from 'lucide-react';
 
 export const SendCargoPage: React.FC = () => {
@@ -68,15 +71,16 @@ export const SendCargoPage: React.FC = () => {
   const [fragile, setFragile] = useState<boolean>(true);
   const [specialInstructions, setSpecialInstructions] = useState('Keep in upright position. Anti-static padding included.');
 
-  // Step 3: Schedule (Budget removed as requested)
+  // Step 3: Schedule
   const [pickupDate, setPickupDate] = useState(new Date().toISOString().split('T')[0]);
   const [deliveryDate, setDeliveryDate] = useState(new Date(Date.now() + 86400000).toISOString().split('T')[0]);
   const [flexibleSchedule, setFlexibleSchedule] = useState(true);
 
-  // Step 4: Matches
+  // Step 4: Matches & Payment
   const [rankedMatches, setRankedMatches] = useState<MatchScoreResult[]>([]);
   const [selectedMatch, setSelectedMatch] = useState<MatchScoreResult | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isConfirmationModalOpen, setIsConfirmationModalOpen] = useState(false);
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [activeReasonIndex, setActiveReasonIndex] = useState<number | null>(null);
 
   // Filter categories dynamically with search query
@@ -131,13 +135,23 @@ export const SendCargoPage: React.FC = () => {
 
   const handleSelectMatch = (match: MatchScoreResult) => {
     setSelectedMatch(match);
-    setIsModalOpen(true);
+    setIsConfirmationModalOpen(true);
+  };
+
+  const handleProceedToPayment = () => {
+    setIsConfirmationModalOpen(false);
+    setIsPaymentModalOpen(true);
   };
 
   const fullPickupAddress = `${pickupDetails.flat_building}, ${pickupDetails.street_area}, ${pickupDetails.city}, ${pickupDetails.state} - ${pickupDetails.pincode}`;
   const fullDeliveryAddress = `${deliveryDetails.flat_building}, ${deliveryDetails.street_area}, ${deliveryDetails.city}, ${deliveryDetails.state} - ${deliveryDetails.pincode}`;
 
-  const handleConfirmBooking = async () => {
+  const handlePaymentSuccess = async (paymentData: {
+    payment_status: PaymentStatus;
+    payment_method: PaymentMethod;
+    transaction_id: string;
+    paid_at: string;
+  }) => {
     if (!selectedMatch) return;
 
     const createdReq = await createDeliveryRequest({
@@ -166,9 +180,13 @@ export const SendCargoPage: React.FC = () => {
       price: selectedMatch.estimated_price,
       matchScore: selectedMatch.match_score,
       tripDetails: selectedMatch.trip,
+      payment_status: paymentData.payment_status,
+      payment_method: paymentData.payment_method,
+      transaction_id: paymentData.transaction_id,
+      paid_at: paymentData.paid_at,
     });
 
-    setIsModalOpen(false);
+    setIsPaymentModalOpen(false);
     navigate(`/customer/track?id=${booking.id}`);
   };
 
@@ -892,30 +910,33 @@ export const SendCargoPage: React.FC = () => {
                     <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                       <div>
                         <span className="text-[10px] uppercase font-bold text-emerald-800 block">
-                          CargoMatch Shared Rate ({weight} kg • {bodyType})
+                          {trip.is_return_trip ? 'Empty-Return Space Rate' : 'Standard Shared Capacity Rate'} ({weight} kg • {bodyType})
                         </span>
                         <div className="flex items-baseline gap-2">
                           <span className="text-2xl font-black text-slate-900">
                             {formatINR(estimated_price)}
                           </span>
                           <span className="text-xs text-slate-400 line-through">
-                            {formatINR(Math.round(estimated_price * 1.6))}
+                            {formatINR(match.price_breakdown?.traditionalCourierPrice || Math.round(estimated_price * 1.6))}
                           </span>
                           <span className="text-xs font-bold text-emerald-600 flex items-center">
-                            <TrendingDown className="w-3 h-3 mr-0.5" /> ~38% saved
+                            <TrendingDown className="w-3 h-3 mr-0.5" />
+                            {match.price_breakdown?.savingsPercentage || (trip.is_return_trip ? 42 : 35)}% saved
                           </span>
                         </div>
                       </div>
 
-                      <Button
-                        variant="primary"
-                        size="md"
-                        onClick={() => handleSelectMatch(match)}
-                        rightIcon={<ArrowRight className="w-4 h-4" />}
-                        className="font-bold shadow-md"
-                      >
-                        Book Available Space
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="primary"
+                          size="md"
+                          onClick={() => handleSelectMatch(match)}
+                          rightIcon={<CreditCard className="w-4 h-4" />}
+                          className="font-bold shadow-md whitespace-nowrap"
+                        >
+                          Book & Pay
+                        </Button>
+                      </div>
                     </div>
 
                   </div>
@@ -927,10 +948,10 @@ export const SendCargoPage: React.FC = () => {
         </div>
       )}
 
-      {/* Booking Confirmation Modal */}
+      {/* 1. Booking Confirmation / Summary Modal */}
       <BookingConfirmationModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        isOpen={isConfirmationModalOpen}
+        onClose={() => setIsConfirmationModalOpen(false)}
         matchResult={selectedMatch}
         cargoDetails={{
           name: cargoName,
@@ -941,9 +962,28 @@ export const SendCargoPage: React.FC = () => {
           pickupAddress: fullPickupAddress,
           deliveryAddress: fullDeliveryAddress,
         }}
-        onConfirm={handleConfirmBooking}
+        onConfirm={handleProceedToPayment}
       />
+
+      {/* 2. Indian Payment Gateway Modal */}
+      {selectedMatch && (
+        <PaymentGatewayModal
+          isOpen={isPaymentModalOpen}
+          onClose={() => setIsPaymentModalOpen(false)}
+          bookingAmount={selectedMatch.estimated_price}
+          priceBreakdown={selectedMatch.price_breakdown}
+          tripDetails={selectedMatch.trip}
+          cargoDetails={{
+            name: cargoName,
+            weight,
+            pickupCity: source,
+            destinationCity: destination,
+          }}
+          onPaymentSuccess={handlePaymentSuccess}
+        />
+      )}
 
     </div>
   );
 };
+

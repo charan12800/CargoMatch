@@ -1,5 +1,6 @@
 import { Trip, DeliveryRequest, MatchScoreResult, MatchFactorBreakdown } from '../types';
 import { MOCK_DRIVERS, MOCK_VEHICLES } from './mockData';
+import { calculateCargoPrice, getRouteDistance } from './pricing';
 
 export interface MatchingCriteria {
   source: string;
@@ -21,12 +22,12 @@ export function calculateMatchScore(
   const factors: MatchFactorBreakdown[] = [];
   const reasons: string[] = [];
 
-  // 1. Route Compatibility (40%)
   const reqSource = (request.source || '').toLowerCase().trim();
   const reqDest = (request.destination || '').toLowerCase().trim();
   const tripSource = (trip.source || '').toLowerCase().trim();
   const tripDest = (trip.destination || '').toLowerCase().trim();
 
+  // 1. Route Compatibility (40%)
   let routeScore = 0;
   if (reqSource === tripSource && reqDest === tripDest) {
     routeScore = 100;
@@ -54,10 +55,14 @@ export function calculateMatchScore(
     const utilizationRatio = requestedWeight / trip.available_capacity;
     if (utilizationRatio <= 0.8) {
       capacityScore = 100;
-      reasons.push(`Ample capacity: ${requestedWeight} kg cargo easily fits in ${trip.available_capacity} kg free space`);
+      reasons.push(
+        `Ample capacity: ${requestedWeight} kg cargo fits inside ${trip.available_capacity} kg free payload`
+      );
     } else {
       capacityScore = 90;
-      reasons.push(`Optimizes space: ${requestedWeight} kg cargo utilizes remaining ${trip.available_capacity} kg payload`);
+      reasons.push(
+        `High space optimization: ${requestedWeight} kg cargo utilizes remaining ${trip.available_capacity} kg payload`
+      );
     }
   } else {
     capacityScore = Math.max(20, Math.round((trip.available_capacity / requestedWeight) * 60));
@@ -81,27 +86,51 @@ export function calculateMatchScore(
     explanation: 'Aligned departure and delivery timeline',
   });
 
-  // 4. Price & Shared Rate Value (10%)
-  const estimatedPrice = Math.min(15000, Math.max(1, Math.round(trip.price * (requestedWeight / 10))));
+  // 4. Dynamic Multi-Factor Pricing (Distance, Weight, Return Trip, Vehicle Capacity) (10%)
+  const distanceKm = getRouteDistance(
+    trip.source || request.source || 'Hyderabad',
+    trip.destination || request.destination || 'Bengaluru'
+  );
+
+  const priceBreakdown = calculateCargoPrice({
+    distanceKm,
+    source: trip.source,
+    destination: trip.destination,
+    weightKg: requestedWeight,
+    isReturnTrip: trip.is_return_trip,
+    totalCapacityKg: trip.total_capacity || 750,
+    availableCapacityKg: trip.available_capacity || 450,
+    isFragile: Boolean(request.fragile),
+    vehicleType: trip.vehicle?.vehicle_type,
+  });
+
+  const estimatedPrice = priceBreakdown.finalPrice;
   let priceScore = trip.is_return_trip ? 98 : 90;
+
   if (trip.is_return_trip) {
-    reasons.push('Return-trip discount applied — up to 40% lower cost');
+    reasons.push(
+      `Empty return discount applied — ₹${priceBreakdown.returnTripDiscountAmount} discount (38% cheaper for ${distanceKm} km)`
+    );
   } else {
-    reasons.push('Shared capacity pricing applied');
+    reasons.push(
+      `Shared route economy applied — save ${priceBreakdown.savingsPercentage}% vs standalone courier for ${distanceKm} km`
+    );
   }
 
   factors.push({
     name: 'Price & Cost Value',
     score: priceScore,
     weight: 10,
-    explanation: trip.is_return_trip ? 'Unused return space discount' : 'Standard competitive rate',
+    explanation: trip.is_return_trip
+      ? `38% return-trip discount (${distanceKm} km route, ₹${priceBreakdown.ratePerKm}/km)`
+      : `Standard shared capacity (${distanceKm} km route, ₹${priceBreakdown.ratePerKm}/km)`,
   });
 
   // 5. Driver Rating (10%)
   const rating = trip.driver?.rating || 4.9;
   const ratingScore = Math.min(100, Math.round((rating / 5) * 100));
   if (rating >= 4.7) {
-    reasons.push(`Verified high-reputation driver (${rating} ★)`);
+    reasons.push(`Verified high-reputation driver (${rating} ★) with OTP handshake security`);
   }
 
   factors.push({
@@ -114,10 +143,14 @@ export function calculateMatchScore(
   // 6. Vehicle Suitability & Body Type (5%)
   let vehicleScore = 95;
   const bodyType = trip.vehicle?.body_type || 'Closed Container';
-  if (request.fragile || request.category === 'Electronics & Appliances' || request.category === 'Perishables & Dairy') {
+  if (
+    request.fragile ||
+    request.category === 'Electronics & Appliances' ||
+    request.category === 'Perishables & Dairy'
+  ) {
     if (bodyType === 'Closed Container') {
       vehicleScore = 100;
-      reasons.push('Closed Container vehicle provides maximum weather and transit protection');
+      reasons.push('Closed Container vehicle provides maximum weather and cargo protection');
     } else {
       vehicleScore = 85;
       reasons.push('Open body vehicle with secure all-weather tarpaulin cover');
@@ -144,6 +177,7 @@ export function calculateMatchScore(
     match_score: totalScore,
     best_match: totalScore >= 92,
     estimated_price: estimatedPrice,
+    price_breakdown: priceBreakdown,
     factors,
     reasons,
   };
@@ -161,7 +195,24 @@ export function rankMatches(
   const reqDest = (request.destination || 'Bengaluru').trim();
   const reqWeight = request.weight || 5;
 
+  const distanceKm = getRouteDistance(reqSource, reqDest);
+
+  // Helper to calculate realistic driver base trip price
+  const getDriverPrice = (isReturn: boolean, cap: number, avail: number) => {
+    return calculateCargoPrice({
+      distanceKm,
+      source: reqSource,
+      destination: reqDest,
+      weightKg: reqWeight,
+      isReturnTrip: isReturn,
+      totalCapacityKg: cap,
+      availableCapacityKg: avail,
+      isFragile: Boolean(request.fragile),
+    }).finalPrice;
+  };
+
   // Build candidate trips that match the user's exact manual route
+  // Includes return trips and one-way trips with distinct pricing
   const candidateTrips: Trip[] = [
     {
       id: `trip-match-1`,
@@ -178,8 +229,8 @@ export function rankMatches(
       estimated_arrival: 'Tomorrow, 05:00 PM',
       total_capacity: 750,
       available_capacity: 450,
-      price: Math.max(600, reqWeight * 45 + 500),
-      is_return_trip: true,
+      price: getDriverPrice(true, 750, 450),
+      is_return_trip: true, // Empty Return Trip (Steep discount applied!)
       status: 'ACTIVE',
       notes: `Direct run from ${reqSource} to ${reqDest}. Clean closed container space available.`,
       created_at: new Date().toISOString(),
@@ -199,8 +250,8 @@ export function rankMatches(
       estimated_arrival: 'Day after tomorrow, 06:00 AM',
       total_capacity: 1250,
       available_capacity: 800,
-      price: Math.max(550, reqWeight * 40 + 450),
-      is_return_trip: false,
+      price: getDriverPrice(false, 1250, 800),
+      is_return_trip: false, // Standard One-Way Trip
       status: 'SCHEDULED',
       notes: `Open body Bolero Maxi Truck running ${reqSource} → ${reqDest}. Heavy items accepted.`,
       created_at: new Date().toISOString(),
@@ -220,8 +271,8 @@ export function rankMatches(
       estimated_arrival: 'In 2 days, 04:00 PM',
       total_capacity: 600,
       available_capacity: 350,
-      price: Math.max(700, reqWeight * 50 + 600),
-      is_return_trip: false,
+      price: getDriverPrice(false, 600, 350),
+      is_return_trip: false, // Standard One-Way Express Mini Van
       status: 'SCHEDULED',
       notes: `Express mini van route ${reqSource} → ${reqDest}. Weather-sealed closed container.`,
       created_at: new Date().toISOString(),
@@ -241,8 +292,8 @@ export function rankMatches(
       estimated_arrival: 'In 3 days, 06:30 PM',
       total_capacity: 1000,
       available_capacity: 550,
-      price: Math.max(650, reqWeight * 42 + 500),
-      is_return_trip: true,
+      price: getDriverPrice(true, 1000, 550),
+      is_return_trip: true, // Empty Return Trip (Steep discount applied!)
       status: 'SCHEDULED',
       notes: `Empty return trip along ${reqSource} → ${reqDest} highway corridor.`,
       created_at: new Date().toISOString(),

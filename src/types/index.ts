@@ -113,6 +113,29 @@ export interface DeliveryRequest {
   created_at: string;
 }
 
+export type PaymentStatus = 'PAID' | 'PENDING' | 'REFUNDED';
+export type PaymentMethod = 'UPI' | 'CARD' | 'NETBANKING' | 'WALLET' | 'COD';
+
+export interface PriceBreakdown {
+  distanceKm: number;
+  weightKg: number;
+  isReturnTrip: boolean;
+  baseBookingFee: number;
+  distanceCharge: number;
+  weightCharge: number;
+  capacityUtilizationDiscount: number;
+  subtotalStandard: number;
+  returnTripDiscountAmount: number;
+  fragileHandlingFee: number;
+  gstAmount: number;
+  finalPrice: number;
+  traditionalCourierPrice: number;
+  totalSavingsAmount: number;
+  savingsPercentage: number;
+  ratePerKm: number;
+  ratePerKg: number;
+}
+
 export interface Booking {
   id: string;
   customer_id: string;
@@ -128,6 +151,10 @@ export interface Booking {
   status: BookingStatus;
   otp: string;
   otp_verified: boolean;
+  payment_status?: PaymentStatus;
+  payment_method?: PaymentMethod;
+  transaction_id?: string;
+  paid_at?: string;
   booked_at: string;
   delivered_at?: string;
 }
@@ -164,6 +191,8 @@ export interface MatchScoreResult {
   match_score: number; // 0 - 100
   best_match: boolean;
   estimated_price: number;
+  price_breakdown?: PriceBreakdown;
   factors: MatchFactorBreakdown[];
   reasons: string[];
 }
+

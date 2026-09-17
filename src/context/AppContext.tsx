@@ -7,7 +7,9 @@ import {
   BookingStatus, 
   AppNotification, 
   Rating, 
-  UserRole 
+  UserRole,
+  PaymentStatus,
+  PaymentMethod
 } from '../types';
 import { 
   MOCK_DRIVERS, 
@@ -41,7 +43,21 @@ interface AppContextType {
   loginAs: (user: Profile) => void;
   createDeliveryRequest: (request: Omit<DeliveryRequest, 'id' | 'created_at' | 'status' | 'customer_id'>) => Promise<DeliveryRequest>;
   postTrip: (trip: Omit<Trip, 'id' | 'created_at' | 'status' | 'driver_id'>) => Promise<Trip>;
-  createBooking: (tripId: string, requestId?: string, customCargo?: { name: string; weight: number; price: number; matchScore: number; tripDetails?: Trip }) => Promise<Booking>;
+  createBooking: (
+    tripId: string,
+    requestId?: string,
+    customCargo?: {
+      name: string;
+      weight: number;
+      price: number;
+      matchScore: number;
+      tripDetails?: Trip;
+      payment_status?: PaymentStatus;
+      payment_method?: PaymentMethod;
+      transaction_id?: string;
+      paid_at?: string;
+    }
+  ) => Promise<Booking>;
   updateBookingStatus: (bookingId: string, newStatus: BookingStatus) => Promise<void>;
   verifyDeliveryOTP: (bookingId: string, enteredOtp: string) => Promise<{ success: boolean; message: string }>;
   submitRating: (bookingId: string, rating: number, review?: string) => Promise<void>;
@@ -320,7 +336,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const createBooking = async (
     tripId: string,
     requestId?: string,
-    customCargo?: { name: string; weight: number; price: number; matchScore: number; tripDetails?: Trip }
+    customCargo?: {
+      name: string;
+      weight: number;
+      price: number;
+      matchScore: number;
+      tripDetails?: Trip;
+      payment_status?: PaymentStatus;
+      payment_method?: PaymentMethod;
+      transaction_id?: string;
+      paid_at?: string;
+    }
   ): Promise<Booking> => {
     const trip = customCargo?.tripDetails || trips.find((t) => t.id === tripId) || MOCK_TRIPS[0];
     const req = requestId ? requests.find((r) => r.id === requestId) : undefined;
@@ -329,6 +355,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const weightBooked = req ? req.weight : customCargo?.weight || 10;
     const bookingPrice = customCargo?.price || Math.round(trip.price * (weightBooked / 10));
     const score = customCargo?.matchScore || 98;
+    const paymentStatus = customCargo?.payment_status || 'PAID';
+    const paymentMethod = customCargo?.payment_method || 'UPI';
+    const transactionId = customCargo?.transaction_id || `TXN-UPI-${Math.floor(100000 + Math.random() * 900000)}`;
+    const paidAt = customCargo?.paid_at || new Date().toISOString();
 
     const newBooking: Booking = {
       id: `bk-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -361,6 +391,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       status: 'PENDING',
       otp: otp,
       otp_verified: false,
+      payment_status: paymentStatus,
+      payment_method: paymentMethod,
+      transaction_id: transactionId,
+      paid_at: paidAt,
       booked_at: new Date().toISOString(),
     };
 
@@ -395,6 +429,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         price: bookingPrice,
         match_score: score,
         otp: otp,
+        payment_status: paymentStatus,
+        payment_method: paymentMethod,
+        transaction_id: transactionId,
+        paid_at: paidAt,
       });
       if (res.data) {
         setBookings((prev) => prev.map((b) => (b.id === newBooking.id ? res.data! : b)));
@@ -405,7 +443,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await addNotification({
       user_id: currentUser.id,
       title: 'Booking Confirmed!',
-      message: `Your booking for ${weightBooked} kg space with driver ${trip.driver?.full_name || 'Rajesh'} has been placed. Secure delivery OTP: ${otp}.`,
+      message: `Your booking for ${weightBooked} kg space with driver ${trip.driver?.full_name || 'Rajesh'} is confirmed (${paymentStatus === 'PAID' ? 'Paid via ' + paymentMethod : 'Pay on Handover'}). Delivery OTP: ${otp}.`,
       type: 'booking',
     });
 
@@ -413,7 +451,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await addNotification({
       user_id: trip.driver_id || MOCK_DRIVERS[0].id,
       title: 'New Cargo Request Received',
-      message: `A customer requested to book ${weightBooked} kg space on your ${trip.source} → ${trip.destination} route for ₹${bookingPrice}.`,
+      message: `A customer booked ${weightBooked} kg space on your ${trip.source} → ${trip.destination} route for ₹${bookingPrice} (${paymentStatus === 'PAID' ? 'Pre-Paid' : 'Pay on Handover'}).`,
       type: 'booking',
     });
 

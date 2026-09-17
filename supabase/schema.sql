@@ -90,6 +90,10 @@ CREATE TABLE IF NOT EXISTS public.bookings (
     status TEXT DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'ACCEPTED', 'PICKED_UP', 'IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED')),
     otp TEXT NOT NULL,
     otp_verified BOOLEAN DEFAULT false NOT NULL,
+    payment_status TEXT DEFAULT 'PAID' CHECK (payment_status IN ('PAID', 'PENDING', 'REFUNDED')),
+    payment_method TEXT DEFAULT 'UPI' CHECK (payment_method IN ('UPI', 'CARD', 'NETBANKING', 'WALLET', 'COD')),
+    transaction_id TEXT,
+    paid_at TIMESTAMP WITH TIME ZONE,
     booked_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     delivered_at TIMESTAMP WITH TIME ZONE
 );

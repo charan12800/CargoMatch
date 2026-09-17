@@ -187,19 +187,33 @@ export const BookingConfirmationModal: React.FC<BookingConfirmationModalProps> =
           <div className="p-4 rounded-xl bg-emerald-50/70 border border-emerald-200 space-y-2">
             <div className="flex items-center justify-between text-xs text-emerald-900">
               <span>Standard standalone courier rate:</span>
-              <span className="line-through text-slate-600 font-semibold">{formatINR(Math.round(estimated_price * 1.65))}</span>
+              <span className="line-through text-slate-600 font-semibold">
+                {formatINR(matchResult.price_breakdown?.traditionalCourierPrice || Math.round(estimated_price * 1.65))}
+              </span>
             </div>
             <div className="flex items-center justify-between pt-1 border-t border-emerald-200/60">
               <div>
-                <span className="text-xs font-bold text-emerald-950 uppercase block">CargoMatch Shared Rate</span>
+                <span className="text-xs font-bold text-emerald-950 uppercase block">
+                  {trip.is_return_trip ? 'Empty-Return Discounted Rate' : 'CargoMatch Shared Rate'}
+                </span>
                 <span className="text-2xl font-black text-slate-900">{formatINR(estimated_price)}</span>
               </div>
               <div className="text-right">
                 <span className="text-xs font-bold text-emerald-800 bg-emerald-100 px-2 py-1 rounded-full flex items-center gap-1">
-                  <TrendingDown className="w-3.5 h-3.5" /> 40% Cheaper
+                  <TrendingDown className="w-3.5 h-3.5" />
+                  {matchResult.price_breakdown?.savingsPercentage || (trip.is_return_trip ? 42 : 35)}% Cheaper
                 </span>
               </div>
             </div>
+
+            {matchResult.price_breakdown && (
+              <div className="pt-2 border-t border-emerald-200/40 text-[11px] text-emerald-800 flex justify-between">
+                <span>Distance: <strong>{matchResult.price_breakdown.distanceKm} km</strong></span>
+                {trip.is_return_trip && (
+                  <span className="font-bold text-emerald-700">✓ Includes 38% Return Trip Discount</span>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Security badge */}
@@ -230,7 +244,7 @@ export const BookingConfirmationModal: React.FC<BookingConfirmationModalProps> =
             rightIcon={<ArrowRight className="w-4 h-4" />}
             className="flex-1 font-bold shadow-md"
           >
-            Confirm & Reserve Space
+            Proceed to Payment
           </Button>
         </div>
 

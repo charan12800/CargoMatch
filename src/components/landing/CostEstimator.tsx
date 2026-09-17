@@ -7,47 +7,43 @@ import {
   TrendingDown, 
   Truck, 
   ArrowRight, 
-  MapPin
+  MapPin,
+  RotateCcw,
+  Sparkles
 } from 'lucide-react';
 import { formatINR } from '../../lib/utils';
+import { calculateCargoPrice, getRouteDistance } from '../../lib/pricing';
 
 export const CostEstimator: React.FC = () => {
   const navigate = useNavigate();
   const [source, setSource] = useState('Hyderabad');
   const [destination, setDestination] = useState('Bengaluru');
   const [weight, setWeight] = useState(25);
+  const [isReturnTrip, setIsReturnTrip] = useState(true);
   const [isFragile, setIsFragile] = useState(false);
 
+  const distanceKm = useMemo(() => getRouteDistance(source, destination), [source, destination]);
+
   const calculation = useMemo(() => {
-    const s = source.toLowerCase().trim();
-    const d = destination.toLowerCase().trim();
-    
-    let baseRate = 600;
-    if ((s.includes('hyd') && d.includes('blr')) || (s.includes('blr') && d.includes('hyd'))) {
-      baseRate = 750;
-    } else if (s.includes('hyd') && d.includes('vij')) {
-      baseRate = 500;
-    } else if (s.includes('hyd') && d.includes('mum')) {
-      baseRate = 1100;
-    } else if (s.includes('hyd') && d.includes('che')) {
-      baseRate = 900;
-    }
-
-    const traditionalBase = Math.max(1800, baseRate * 2.2);
-    const traditionalCost = Math.round(traditionalBase + weight * 28 + (isFragile ? 300 : 0));
-
-    const sharedCost = Math.round(baseRate * 0.9 + weight * 14 + (isFragile ? 150 : 0));
-    const savings = Math.max(0, traditionalCost - sharedCost);
-    const savingsPct = Math.round((savings / traditionalCost) * 100);
+    const priceData = calculateCargoPrice({
+      distanceKm,
+      source,
+      destination,
+      weightKg: weight,
+      isReturnTrip,
+      isFragile,
+    });
 
     return {
-      traditionalCost,
-      sharedCost,
-      savings,
-      savingsPct,
+      distanceKm: priceData.distanceKm,
+      traditionalCost: priceData.traditionalCourierPrice,
+      sharedCost: priceData.finalPrice,
+      savings: priceData.totalSavingsAmount,
+      savingsPct: priceData.savingsPercentage,
+      returnTripDiscount: priceData.returnTripDiscountAmount,
       availableVehicles: weight <= 50 ? 8 : weight <= 200 ? 5 : 3,
     };
-  }, [source, destination, weight, isFragile]);
+  }, [distanceKm, source, destination, weight, isReturnTrip, isFragile]);
 
   return (
     <section id="calculator" className="py-20 lg:py-28 bg-white relative">
@@ -129,6 +125,27 @@ export const CostEstimator: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Trip Type Toggle (Return vs Standard) */}
+                <div className="p-3 bg-white rounded-xl border border-slate-200/80 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5 cursor-pointer">
+                      <RotateCcw className="w-3.5 h-3.5 text-amber-600" /> Match Empty Return Trip (38% Off)
+                    </label>
+                    <input
+                      type="checkbox"
+                      id="return-trip-calc-toggle"
+                      checked={isReturnTrip}
+                      onChange={(e) => setIsReturnTrip(e.target.checked)}
+                      className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-slate-300 cursor-pointer"
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    {isReturnTrip
+                      ? 'Monetizes deadhead return vehicles at maximum discount.'
+                      : 'Standard one-way shared capacity pricing.'}
+                  </p>
+                </div>
+
                 {/* Fragile checkbox */}
                 <div className="flex items-center gap-2.5 pt-1">
                   <input
@@ -136,7 +153,7 @@ export const CostEstimator: React.FC = () => {
                     id="fragile-check-calc"
                     checked={isFragile}
                     onChange={(e) => setIsFragile(e.target.checked)}
-                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300"
+                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300 cursor-pointer"
                   />
                   <label htmlFor="fragile-check-calc" className="text-xs font-medium text-slate-700 cursor-pointer">
                     Fragile / Precision cargo (Requires Closed Container)
@@ -147,9 +164,14 @@ export const CostEstimator: React.FC = () => {
               {/* Right: Real-time Price Comparison */}
               <div className="md:col-span-6 bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-5">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
-                    Estimated Route Pricing
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                      Route Pricing
+                    </span>
+                    <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
+                      {calculation.distanceKm} km
+                    </span>
+                  </div>
                   <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 flex items-center gap-1">
                     <TrendingDown className="w-3.5 h-3.5" /> Save {calculation.savingsPct}%
                   </span>
@@ -166,7 +188,7 @@ export const CostEstimator: React.FC = () => {
                   <div className="flex items-baseline justify-between pt-1">
                     <div>
                       <span className="text-xs font-bold text-blue-600 uppercase tracking-wide block">
-                        CargoMatch Shared Rate
+                        {isReturnTrip ? 'CargoMatch Return Rate' : 'CargoMatch Shared Rate'}
                       </span>
                       <span className="text-2xl sm:text-3xl font-black text-slate-900">
                         {formatINR(calculation.sharedCost)}
@@ -176,7 +198,7 @@ export const CostEstimator: React.FC = () => {
                       <span className="text-xs text-emerald-800 font-bold block">
                         You Save {formatINR(calculation.savings)}
                       </span>
-                      <span className="text-[10px] text-slate-600">per delivery</span>
+                      <span className="text-[10px] text-slate-600">per shipment</span>
                     </div>
                   </div>
                 </div>

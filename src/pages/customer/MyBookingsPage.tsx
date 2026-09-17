@@ -187,10 +187,16 @@ export const MyBookingsPage: React.FC = () => {
                   </div>
 
                   <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Rate & Match Score</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Rate & Payment</span>
                     <div className="flex items-center justify-between">
                       <span className="font-black text-slate-900 text-base">{formatINR(b.price)}</span>
-                      <Badge variant="match" size="sm">{b.match_score}% Match</Badge>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                        (b.payment_status || 'PAID') === 'PAID'
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-amber-50 text-amber-800 border-amber-200'
+                      }`}>
+                        {(b.payment_status || 'PAID') === 'PAID' ? `✓ Paid (${b.payment_method || 'UPI'})` : 'Pay on Handover'}
+                      </span>
                     </div>
                   </div>
                 </div>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { Card } from '../../components/common/Card';
@@ -18,6 +18,8 @@ import {
   Box
 } from 'lucide-react';
 
+import { calculateCargoPrice, getRouteDistance } from '../../lib/pricing';
+
 export const PostTripPage: React.FC = () => {
   const { postTrip } = useApp();
   const navigate = useNavigate();
@@ -26,7 +28,7 @@ export const PostTripPage: React.FC = () => {
   const [source, setSource] = useState('Hyderabad');
   const [destination, setDestination] = useState('Bengaluru');
 
-  // Calendar Date & Time Inputs (replacing text "today/tomorrow")
+  // Calendar Date & Time Inputs
   const defaultDeparture = new Date(Date.now() + 86400000);
   defaultDeparture.setHours(6, 30, 0, 0);
   const defaultArrival = new Date(Date.now() + 86400000);
@@ -43,11 +45,32 @@ export const PostTripPage: React.FC = () => {
   const [registrationNumber, setRegistrationNumber] = useState('TS 09 UA 4421');
   const [totalCapacity, setTotalCapacity] = useState<number>(750);
   const [availableCapacity, setAvailableCapacity] = useState<number>(450);
-  const [price, setPrice] = useState<number>(1200);
 
   // Return trip toggle
   const [isReturnTrip, setIsReturnTrip] = useState<boolean>(true);
   const [notes, setNotes] = useState('Returning with clean payload space. Covered and secured.');
+
+  // Auto-calculated dynamic suggested price
+  const estimatedRouteDistance = useMemo(() => getRouteDistance(source, destination), [source, destination]);
+
+  const suggestedPrice = useMemo(() => {
+    return calculateCargoPrice({
+      distanceKm: estimatedRouteDistance,
+      source,
+      destination,
+      weightKg: 25,
+      isReturnTrip,
+      totalCapacityKg: totalCapacity,
+      availableCapacityKg: availableCapacity,
+    }).finalPrice;
+  }, [estimatedRouteDistance, source, destination, isReturnTrip, totalCapacity, availableCapacity]);
+
+  const [price, setPrice] = useState<number>(550);
+
+  // Update default price when suggested rate shifts
+  useEffect(() => {
+    setPrice(suggestedPrice);
+  }, [suggestedPrice]);
 
   const handleVehicleModelChange = (model: string) => {
     setVehicleModel(model);
