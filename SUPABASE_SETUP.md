@@ -44,6 +44,10 @@ To immediately populate realistic test trips, vehicles, drivers, and cargo reque
 2. Copy the contents of [`supabase/seed.sql`](./supabase/seed.sql).
 3. Paste and click **"Run"**.
 
+The seeded accounts can then sign in with their listed email address and the
+shared demo password: `CargoMatchDemo123!`. Re-running the seed is safe and
+also repairs older seed accounts that contain invalid placeholder passwords.
+
 ---
 
 ## 4. Configure Environment Variables

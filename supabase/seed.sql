@@ -3,6 +3,13 @@
 -- Automatically seeds auth.users, profiles, vehicles, trips, requests & bookings
 -- ==============================================================================
 
+-- The sample accounts below all use this password:
+-- CargoMatchDemo123!
+--
+-- `auth.users.encrypted_password` must contain a valid bcrypt hash.  Do not
+-- replace it with a plain-text password or a placeholder string.
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 -- 1. Insert into auth.users first to satisfy foreign key constraints
 INSERT INTO auth.users (
     instance_id,
@@ -29,6 +36,22 @@ VALUES
     ('00000000-0000-0000-0000-000000000000', '55555555-5555-5555-5555-555555555555', 'authenticated', 'authenticated', 'pooja@techhub.in', '$2a$10$abcdefghijklmnopqrstuv', NOW(), '{"provider":"email","providers":["email"]}'::jsonb, '{"full_name":"Pooja Sundaram (TechHub Solutions)","role":"customer","phone":"+91 94401 22334"}'::jsonb, NOW(), NOW(), '', '', '', ''),
     ('00000000-0000-0000-0000-000000000000', '66666666-6666-6666-6666-666666666666', 'authenticated', 'authenticated', 'vikram.mehta@apex.com', '$2a$10$abcdefghijklmnopqrstuv', NOW(), '{"provider":"email","providers":["email"]}'::jsonb, '{"full_name":"Vikram Mehta (Apex Hardware)","role":"customer","phone":"+91 98220 88990"}'::jsonb, NOW(), NOW(), '', '', '', '')
 ON CONFLICT (id) DO NOTHING;
+
+-- Make the seed idempotent and repair accounts created by older versions of
+-- this file, which used placeholder password hashes that Supabase could not
+-- authenticate. `crypt` generates the bcrypt value expected by GoTrue.
+UPDATE auth.users
+SET encrypted_password = crypt('CargoMatchDemo123!', gen_salt('bf', 10)),
+    email_confirmed_at = COALESCE(email_confirmed_at, NOW()),
+    updated_at = NOW()
+WHERE email IN (
+    'rajesh.verma@cargomatch.in',
+    'suresh.reddy@cargomatch.in',
+    'm.imran@cargomatch.in',
+    'anil.kulkarni@cargomatch.in',
+    'pooja@techhub.in',
+    'vikram.mehta@apex.com'
+);
 
 -- 2. Upsert Driver & Customer Profiles with ratings and images
 INSERT INTO public.profiles (id, full_name, email, phone, role, profile_image, rating, total_deliveries)
